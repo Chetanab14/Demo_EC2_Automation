@@ -13,9 +13,10 @@ jobs:
 
     steps:
 
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -23,51 +24,47 @@ jobs:
       - name: Install Paramiko
         run: pip install paramiko
 
-      - name: Deploy HTML to EC2
+      - name: Create SSH Key
+        run: |
+          echo "${{ secrets.EC2_KEY }}" > key.pem
+          chmod 600 key.pem
 
+      - name: Deploy HTML
         env:
           HOST: ${{ secrets.EC2_HOST }}
           USER: ${{ secrets.EC2_USER }}
-          KEY: ${{ secrets.EC2_KEY }}
 
         run: |
 
-          cat > deploy.py <<'EOF'
+          python <<EOF
 
           import paramiko
 
-          ssh = paramiko.SSHClient()
-          ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+          key = paramiko.Ed25519Key.from_private_key_file("key.pem")
 
-          private_key = paramiko.RSAKey.from_private_key_file("key.pem")
+          ssh = paramiko.SSHClient()
+
+          ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
           ssh.connect(
               hostname="${HOST}",
               username="${USER}",
-              pkey=private_key
+              pkey=key
           )
 
           sftp = ssh.open_sftp()
 
           sftp.put(
               "templates/index.html",
-              "/home/ubuntu/flaskapp/templates/index.html"
+              "/home/ubuntu/flaskapp/Demo_EC2_Automation/templates/index.html"
           )
 
           sftp.close()
 
-          stdin, stdout, stderr = ssh.exec_command(
-              "sudo systemctl restart flask"
-          )
-
-          print(stdout.read().decode())
+          ssh.exec_command("sudo systemctl restart flask")
 
           ssh.close()
 
+          print("Deployment Successful")
+
           EOF
-
-          echo "$KEY" > key.pem
-
-          chmod 600 key.pem
-
-          python deploy.py
